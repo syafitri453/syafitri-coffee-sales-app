@@ -54,7 +54,55 @@ if uploaded_file is not None:
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True)
             df.dropna(subset=['Date'], inplace=True) 
 
-        # --- 3. Tampilan Dashboard dengan Tabs ---
+        # --- APLIKASI FILTER (SIDEBAR) ---
+        
+        # Inisialisasi Sidebar
+        st.sidebar.header("Filter Analisis")
+        
+        # Filter 1: Bulan
+        if 'Month_name' in df.columns:
+            all_months = df['Month_name'].unique().tolist()
+            selected_months = st.sidebar.multiselect(
+                "Pilih Bulan",
+                options=all_months,
+                default=all_months 
+            )
+            df_filtered = df[df['Month_name'].isin(selected_months)]
+        else:
+            df_filtered = df
+            st.sidebar.info("Kolom 'Month_name' tidak ditemukan.")
+
+        # Filter 2: Hari (Weekday)
+        if 'Weekday' in df_filtered.columns:
+            all_days = df_filtered['Weekday'].unique().tolist()
+            selected_days = st.sidebar.multiselect(
+                "Pilih Hari",
+                options=all_days,
+                default=all_days
+            )
+            df_filtered = df_filtered[df_filtered['Weekday'].isin(selected_days)]
+        else:
+            st.sidebar.info("Kolom 'Weekday' tidak ditemukan.")
+
+        # Filter 3: Tipe Pembayaran (cash_type)
+        if 'cash_type' in df_filtered.columns:
+            all_payments = df_filtered['cash_type'].unique().tolist()
+            selected_payments = st.sidebar.multiselect(
+                "Pilih Tipe Pembayaran",
+                options=all_payments,
+                default=all_payments
+            )
+            df_filtered = df_filtered[df_filtered['cash_type'].isin(selected_payments)]
+        else:
+            st.sidebar.info("Kolom 'cash_type' tidak ditemukan.")
+
+
+        # Cek apakah setelah filter data tersisa
+        if df_filtered.empty:
+            st.warning("⚠️ Filter yang diterapkan tidak menghasilkan data. Coba ubah pilihan filter Anda.")
+            st.stop()
+        
+        # --- 3. Tampilan Dashboard dengan Tabs (Menggunakan df_filtered) ---
         
         # Tentukan tab
         tab_ringkasan, tab_produk, tab_waktu_pembayaran, tab_data_mentah = st.tabs([
@@ -69,9 +117,9 @@ if uploaded_file is not None:
             st.header("Ringkasan Kinerja Penjualan")
             
             # Perhitungan Metrik Kunci
-            total_penjualan = df['money'].sum()
-            jumlah_transaksi = len(df)
-            produk_terlaris = df['coffee_name'].mode()[0] if not df['coffee_name'].empty else "N/A"
+            total_penjualan = df_filtered['money'].sum()
+            jumlah_transaksi = len(df_filtered)
+            produk_terlaris = df_filtered['coffee_name'].mode()[0] if not df_filtered['coffee_name'].empty else "N/A"
             
             # Tampilkan Metrik
             col1, col2, col3 = st.columns(3)
@@ -82,9 +130,9 @@ if uploaded_file is not None:
             st.markdown("---")
             
             # Tren Penjualan Harian (Jika kolom Date tersedia)
-            if 'Date' in df.columns and not df.empty:
+            if 'Date' in df_filtered.columns and not df_filtered.empty:
                 st.subheader("📈 Tren Penjualan Harian")
-                daily_sales = df.groupby(df['Date'].dt.date)['money'].sum().reset_index()
+                daily_sales = df_filtered.groupby(df_filtered['Date'].dt.date)['money'].sum().reset_index()
                 daily_sales.columns = ['Date', 'money'] 
                 
                 fig_trend = px.line(
@@ -103,9 +151,12 @@ if uploaded_file is not None:
         with tab_produk:
             st.header("Analisis Penjualan Berdasarkan Produk")
             
-            if not df.empty:
-                sales_by_coffee = df.groupby('coffee_name')['money'].sum().sort_values(ascending=False).reset_index()
-                sales_by_coffee['persentase'] = (sales_by_coffee['money'] / total_penjualan) * 100
+            if not df_filtered.empty:
+                # total_penjualan harus dihitung ulang berdasarkan df_filtered
+                filtered_total_sales = df_filtered['money'].sum() 
+                
+                sales_by_coffee = df_filtered.groupby('coffee_name')['money'].sum().sort_values(ascending=False).reset_index()
+                sales_by_coffee['persentase'] = (sales_by_coffee['money'] / filtered_total_sales) * 100
                 
                 col_bar, col_pie = st.columns(2)
 
@@ -146,9 +197,9 @@ if uploaded_file is not None:
 
             # Penjualan per Jam (hour_of_day)
             with col_hour:
-                if 'hour_of_day' in df.columns and not df.empty:
+                if 'hour_of_day' in df_filtered.columns and not df_filtered.empty:
                     st.subheader("🔔 Penjualan Berdasarkan Jam (Hour of Day)")
-                    sales_by_hour = df.groupby('hour_of_day')['money'].sum().reset_index()
+                    sales_by_hour = df_filtered.groupby('hour_of_day')['money'].sum().reset_index()
                     fig_hour = px.line(
                         sales_by_hour,
                         x='hour_of_day',
@@ -160,9 +211,9 @@ if uploaded_file is not None:
                     )
                     st.plotly_chart(fig_hour, use_container_width=True)
                 
-                if 'cash_type' in df.columns and not df.empty:
+                if 'cash_type' in df_filtered.columns and not df_filtered.empty:
                     st.subheader("💳 Distribusi Metode Pembayaran")
-                    sales_by_payment = df.groupby('cash_type')['money'].sum().reset_index()
+                    sales_by_payment = df_filtered.groupby('cash_type')['money'].sum().reset_index()
                     fig_payment = px.bar(
                         sales_by_payment,
                         x='cash_type',
@@ -176,14 +227,15 @@ if uploaded_file is not None:
 
             # Penjualan per Bulan (Month_name)
             with col_month:
-                if 'Month_name' in df.columns and not df.empty:
+                if 'Month_name' in df_filtered.columns and not df_filtered.empty:
                     st.subheader("🗓️ Penjualan Berdasarkan Bulan")
                     # Tentukan urutan bulan secara manual agar urutan di chart benar
                     month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                    df['Month_name'] = pd.Categorical(df['Month_name'], categories=month_order, ordered=True)
+                    # Pembuatan kategori hanya perlu dilakukan sekali pada df awal, tapi kita ulang untuk memastikan
+                    df_filtered['Month_name'] = pd.Categorical(df_filtered['Month_name'], categories=month_order, ordered=True)
                     
-                    sales_by_month = df.groupby('Month_name')['money'].sum().reset_index()
+                    sales_by_month = df_filtered.groupby('Month_name')['money'].sum().reset_index()
                     
                     fig_month = px.bar(
                         sales_by_month,
@@ -202,7 +254,7 @@ if uploaded_file is not None:
         # --- TAB 4: DATA MENTAH ---
         with tab_data_mentah:
             st.header("Pratinjau Data Mentah")
-            st.dataframe(df)
+            st.dataframe(df_filtered)
 
     except Exception as e:
         # Menampilkan error jika proses pembacaan file gagal
